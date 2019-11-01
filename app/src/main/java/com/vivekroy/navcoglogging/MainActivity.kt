@@ -6,17 +6,26 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
 import android.view.View
+import android.view.Window
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import com.instacart.library.truetime.TrueTime
+import com.instacart.library.truetime.TrueTimeRx
+import io.reactivex.schedulers.Schedulers
 import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.*
 
 
 class MainActivity : AsyncActivity() {
@@ -35,6 +44,15 @@ class MainActivity : AsyncActivity() {
             Log.e(logTag, "Device does not support bluetooth")
         }
         dialog = locationAlert()
+        TrueTimeRx.build()
+            .initializeRx("time.google.com")
+            .subscribeOn(Schedulers.io())
+            .subscribe({ _: Date ->
+                CoroutineScope(Main).launch { Toast.makeText(applicationContext, "NTP synced successfully", Toast.LENGTH_SHORT).show() }
+            }, { t: Throwable? ->
+                t?.printStackTrace()
+            })
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onResume() {
@@ -46,6 +64,7 @@ class MainActivity : AsyncActivity() {
             if (!requestLocationPermission()) Log.e(logTag, "Location permission not granted")
             if (!requestLocationOn()) Log.e(logTag, "Location not turned on")
         }
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_IMMERSIVE or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
     }
 
     override fun onPause() {
@@ -93,6 +112,7 @@ class MainActivity : AsyncActivity() {
     fun buttonClicked(view: View) {
         val application = this.applicationContext as BeaconLoggingApplication
         if (application.beaconManager.rangingNotifiers.isNotEmpty()) {
+            application.commitDatabase()
             application.disableMonitoring()
             button.text = "Start"
         } else {

@@ -7,15 +7,24 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Environment
 import android.os.RemoteException
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.room.Room
+import com.instacart.library.truetime.TrueTimeRx
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.launch
 import org.altbeacon.beacon.*
-import java.util.*
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.lang.Exception
+import java.nio.channels.FileChannel
+import kotlin.math.log
 
 class BeaconLoggingApplication : Application(), BeaconConsumer {
 
@@ -76,9 +85,56 @@ class BeaconLoggingApplication : Application(), BeaconConsumer {
         mainActivity = activity
     }
 
+    fun commitDatabase() {
+        CoroutineScope(IO).launch {
+            Log.d(logTag, "commitDatabase")
+            try {
+
+                val dbFile = applicationContext.getDatabasePath("com.vivekroy.navcoglogging") as File
+                val backupFile = applicationContext.getDatabasePath("com.vivekroy.navcoglogging" + TrueTimeRx.now().time) as File
+
+                if (dbFile.exists()) {
+                    val src = FileInputStream(dbFile).channel as FileChannel
+                    val dst = FileOutputStream(backupFile).channel as FileChannel
+                    dst.transferFrom(src, 0, src.size())
+                    src.close()
+                    dst.close()
+                    db.clearAllTables()
+                    Log.d(logTag, "Database saved successfully")
+                    CoroutineScope(Main).launch {
+                        Toast.makeText(
+                            applicationContext,
+                            "Database saved successfully",
+                            Toast.LENGTH_SHORT
+                        )
+                    }
+                } else {
+                    Log.d(logTag, "No database file found")
+                    CoroutineScope(Main).launch {
+                        Toast.makeText(
+                            applicationContext,
+                            "No database file found",
+                            Toast.LENGTH_SHORT
+                        )
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e(logTag, e.message)
+                CoroutineScope(Main).launch {
+                    Toast.makeText(
+                        applicationContext,
+                        "Unable to save database",
+                        Toast.LENGTH_SHORT
+                    )
+                }
+            }
+        }
+    }
+
     override fun onBeaconServiceConnect() {
         val notifier = RangeNotifier { beacons, _ ->
-            val timestamp = Date().time / 1000
+            val timestamp = TrueTimeRx.now().time / 1000
             if (beacons.isNotEmpty())
                 sqlLog(beacons, timestamp)
             else
@@ -95,7 +151,7 @@ class BeaconLoggingApplication : Application(), BeaconConsumer {
         }
     }
 
-    fun sqlLog(beacons: Collection<Beacon>, timeInSecs: Long) {
+    private fun sqlLog(beacons: Collection<Beacon>, timeInSecs: Long) {
         CoroutineScope(IO).launch {
             beacons.forEach {beacon ->
                 db.beaconDao().insertBeacons(
